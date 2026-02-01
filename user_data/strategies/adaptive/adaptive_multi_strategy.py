@@ -333,15 +333,15 @@ class AdaptiveMultiStrategy(IStrategy):
     }
 
     # Timeframe
-    timeframe = '5m'
+    timeframe = '1h'
     process_only_new_candles = True
 
     # Position stacking
     position_adjustment_enable = True
     max_entry_position_adjustment = 2
 
-    # Startup candles
-    startup_candle_count = 200
+    # Startup candles (reduced for longer timeframes)
+    startup_candle_count = 100
 
     # Custom variables
     use_custom_stoploss = True
@@ -444,31 +444,37 @@ class AdaptiveMultiStrategy(IStrategy):
         if len(dataframe) < self.startup_candle_count:
             return dataframe
 
-        # Get market condition
-        market_condition = self._market_condition or self.regime_detector.analyze(dataframe)
+        # Process in larger batches for efficiency (update strategy every 50 candles)
+        strategy_update_interval = 50
+        current_strategy = None
+        current_confidence = 0
+        current_market_condition = None
+        
+        for i in range(self.startup_candle_count, len(dataframe)):
+            # Update strategy selection periodically
+            if i % strategy_update_interval == 0 or current_strategy is None:
+                # Analyze market condition using recent data
+                lookback = min(200, i)
+                start_idx = max(0, i - lookback)
+                df_for_analysis = dataframe.iloc[start_idx:i+1]
+                current_market_condition = self.regime_detector.analyze(df_for_analysis)
 
-        # Select best strategy
-        strategy_name, confidence, scores = self.strategy_selector.select_best_strategy(market_condition)
-        self._active_strategy = strategy_name
-        self._strategy_weights = scores
+                # Select best strategy
+                strategy_name, confidence, scores = self.strategy_selector.select_best_strategy(current_market_condition)
+                current_strategy = self.strategy_selector.get_strategy(strategy_name)
+                current_confidence = confidence
+                self._active_strategy = strategy_name
+                self._strategy_weights = scores
 
-        # Get the selected strategy
-        strategy = self.strategy_selector.get_strategy(strategy_name)
+            if current_strategy is None or current_confidence <= 0.25:
+                continue
 
-        if strategy is None:
-            return dataframe
-
-        # Generate entry signal from selected strategy
-        should_enter, enter_tag = strategy.generate_entry_signal(dataframe, market_condition)
-
-        if should_enter and confidence > 0.4:
-            # Set entry signal on last candle
-            dataframe.loc[dataframe.index[-1], 'enter_long'] = 1
-            dataframe.loc[dataframe.index[-1], 'enter_tag'] = f"{strategy_name}_{enter_tag}"
-
-            logger.info(f"Entry signal: {strategy_name} | {enter_tag} | "
-                       f"Confidence: {confidence:.2f} | "
-                       f"Market: {market_condition['trend']}/{market_condition['volatility']}")
+            # Generate entry signal for current candle (use view, not copy)
+            should_enter, enter_tag = current_strategy.generate_entry_signal(dataframe.iloc[:i+1], current_market_condition)
+            
+            if should_enter:
+                dataframe.loc[dataframe.index[i], 'enter_long'] = 1
+                dataframe.loc[dataframe.index[i], 'enter_tag'] = f"{self._active_strategy}_{enter_tag}"
 
         return dataframe
 
@@ -554,10 +560,10 @@ class AdaptiveMultiStrategy(IStrategy):
                 logger.warning(f"Trade entry blocked for {pair}: extreme volatility")
                 return False
 
-            # Check confidence
+            # Check confidence (relaxed threshold)
             if self._active_strategy:
                 score = self._strategy_weights.get(self._active_strategy, 0)
-                if score < 0.3:
+                if score < 0.15:
                     logger.warning(f"Trade entry blocked for {pair}: low confidence ({score:.2f})")
                     return False
 

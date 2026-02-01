@@ -142,7 +142,7 @@ class TrendFollowingSubStrategy(SubStrategyBase):
             ideal_trends=["strong_uptrend", "uptrend", "strong_downtrend", "downtrend"],
             ideal_volatility=["normal", "high"],
             ideal_volume=["normal", "high", "spike"],
-            min_fitness_threshold=0.4,
+            min_fitness_threshold=0.25,
             max_positions=2,
             max_capital_pct=0.35
         )
@@ -216,7 +216,7 @@ class TrendFollowingSubStrategy(SubStrategyBase):
         trend = market_condition.get("trend", "sideways")
         adx = market_condition.get("adx", 20)
 
-        # Long entry conditions
+        # Long entry conditions (relaxed - any 2 of 4 conditions)
         if trend in ["uptrend", "strong_uptrend", "weak_uptrend"]:
             # EMA crossover
             ema_cross_up = (prev['ema_20'] <= prev['ema_50']) and (current['ema_20'] > current['ema_50'])
@@ -225,20 +225,25 @@ class TrendFollowingSubStrategy(SubStrategyBase):
             # MACD confirmation
             macd_positive = current['macd'] > current['macd_signal']
             # RSI not overbought
-            rsi_ok = current['rsi'] < 70
+            rsi_ok = current['rsi'] < 75  # Relaxed from 70
 
-            if ema_cross_up and above_ema200 and macd_positive and adx > 20:
-                return True, "trend_long_ema_cross"
+            # Count matching conditions
+            conditions_met = sum([ema_cross_up, above_ema200, macd_positive, rsi_ok])
+            
+            # Entry if at least 2 conditions met and ADX shows trend
+            if conditions_met >= 2 and adx > 15:  # Relaxed from 20
+                return True, "trend_long_relaxed"
 
-            # Alternative: Strong trend continuation
-            if (current['close'] > current['ema_20'] > current['ema_50'] > current['ema_200']
-                    and macd_positive and rsi_ok and adx > 25):
+            # Strong trend continuation (relaxed)
+            if (current['close'] > current['ema_20'] > current['ema_50']
+                    and macd_positive and rsi_ok and adx > 20):  # Relaxed from 25
                 return True, "trend_long_continuation"
 
-        # Short entry conditions (for futures - but flag for spot)
-        elif trend in ["downtrend", "strong_downtrend"]:
-            # For spot, we skip - but log opportunity
-            logger.debug("Short opportunity detected in spot mode - skipping")
+        # Sideways market - allow entries on mean reversion signals
+        elif trend == "sideways" and adx < 25:
+            # Allow entries when price is near support and RSI oversold
+            if current['rsi'] < 35 and current['close'] < current['ema_50']:
+                return True, "trend_sideways_buy"
 
         return False, None
 
@@ -281,7 +286,7 @@ class GridSubStrategy(SubStrategyBase):
             ideal_trends=["sideways", "weak_uptrend", "weak_downtrend"],
             ideal_volatility=["low", "normal"],
             ideal_volume=["low", "normal"],
-            min_fitness_threshold=0.5,
+            min_fitness_threshold=0.25,
             max_positions=5,
             max_capital_pct=0.4
         )
@@ -358,13 +363,17 @@ class GridSubStrategy(SubStrategyBase):
         if trend not in ["sideways", "weak_uptrend", "weak_downtrend"]:
             return False, None
 
-        # Entry near lower Bollinger Band
-        price_near_lower = current['close'] < current['bb_lower'] * 1.01
+        # Entry near lower Bollinger Band (relaxed)
+        price_near_lower = current['close'] < current['bb_lower'] * 1.03
 
-        # Entry near recent low
-        price_near_support = current['close'] < current['recent_low'] * 1.02
+        # Entry near recent low (relaxed)
+        price_near_support = current['close'] < current['recent_low'] * 1.05
 
-        if price_near_lower or price_near_support:
+        # Entry when price is in lower half of BB range
+        bb_mid = (current['bb_upper'] + current['bb_lower']) / 2
+        price_below_mid = current['close'] < bb_mid
+
+        if price_near_lower or price_near_support or (price_below_mid and current['rsi'] < 50):
             return True, "grid_buy_support"
 
         return False, None
@@ -397,7 +406,7 @@ class MeanReversionSubStrategy(SubStrategyBase):
             ideal_trends=["sideways", "weak_uptrend", "weak_downtrend"],
             ideal_volatility=["normal", "low"],
             ideal_volume=["normal", "low"],
-            min_fitness_threshold=0.35,
+            min_fitness_threshold=0.25,
             max_positions=3,
             max_capital_pct=0.25
         )
@@ -465,16 +474,16 @@ class MeanReversionSubStrategy(SubStrategyBase):
 
         current = dataframe.iloc[-1]
 
-        # Oversold conditions
-        rsi_oversold = current['rsi'] < 30
-        price_below_lower_bb = current['close'] < current['bb_lower']
-        zscore_extreme = current['zscore'] < -2
-        stoch_oversold = current['stoch_k'] < 20
+        # Oversold conditions (relaxed)
+        rsi_oversold = current['rsi'] < 40  # Relaxed from 30
+        price_below_lower_bb = current['close'] < current['bb_lower'] * 1.02  # Relaxed
+        zscore_extreme = current['zscore'] < -1.0  # Relaxed from -2
+        stoch_oversold = current['stoch_k'] < 30  # Relaxed from 20
 
-        # Entry signal
+        # Entry signal (any 1 condition is enough)
         oversold_count = sum([rsi_oversold, price_below_lower_bb, zscore_extreme, stoch_oversold])
 
-        if oversold_count >= 2:
+        if oversold_count >= 1:  # Relaxed from 2
             return True, f"meanrev_oversold_{oversold_count}"
 
         return False, None
