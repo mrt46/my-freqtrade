@@ -215,6 +215,10 @@ class TrendFollowingSubStrategy(SubStrategyBase):
 
         trend = market_condition.get("trend", "sideways")
         adx = market_condition.get("adx", 20)
+        volume = market_condition.get("volume", "normal")
+
+        # Volume confirmation - trend following needs good volume
+        volume_ok = volume in ["normal", "high", "spike"]
 
         # Long entry conditions (relaxed - any 2 of 4 conditions)
         if trend in ["uptrend", "strong_uptrend", "weak_uptrend"]:
@@ -229,14 +233,14 @@ class TrendFollowingSubStrategy(SubStrategyBase):
 
             # Count matching conditions
             conditions_met = sum([ema_cross_up, above_ema200, macd_positive, rsi_ok])
-            
+
             # Entry if at least 2 conditions met and ADX shows trend
-            if conditions_met >= 2 and adx > 15:  # Relaxed from 20
+            if conditions_met >= 2 and adx > 15 and volume_ok:  # Added volume check
                 return True, "trend_long_relaxed"
 
             # Strong trend continuation (relaxed)
             if (current['close'] > current['ema_20'] > current['ema_50']
-                    and macd_positive and rsi_ok and adx > 20):  # Relaxed from 25
+                    and macd_positive and rsi_ok and adx > 20 and volume_ok):
                 return True, "trend_long_continuation"
 
         # Sideways market - allow entries on mean reversion signals
@@ -360,7 +364,13 @@ class GridSubStrategy(SubStrategyBase):
         current = dataframe.iloc[-1]
 
         trend = market_condition.get("trend", "sideways")
+        volume = market_condition.get("volume", "normal")
+
         if trend not in ["sideways", "weak_uptrend", "weak_downtrend"]:
+            return False, None
+
+        # Grid works better with stable/low volume - reject spikes
+        if volume == "spike":
             return False, None
 
         # Entry near lower Bollinger Band (relaxed)
@@ -473,6 +483,12 @@ class MeanReversionSubStrategy(SubStrategyBase):
             return False, None
 
         current = dataframe.iloc[-1]
+        volume = market_condition.get("volume", "normal")
+
+        # Mean reversion works better with normal/low volume
+        # High volume on oversold = potential capitulation, avoid
+        if volume == "spike":
+            return False, None
 
         # Oversold conditions (relaxed)
         rsi_oversold = current['rsi'] < 40  # Relaxed from 30
@@ -480,10 +496,10 @@ class MeanReversionSubStrategy(SubStrategyBase):
         zscore_extreme = current['zscore'] < -1.0  # Relaxed from -2
         stoch_oversold = current['stoch_k'] < 30  # Relaxed from 20
 
-        # Entry signal (any 1 condition is enough)
+        # Entry signal (require 2 conditions for better quality)
         oversold_count = sum([rsi_oversold, price_below_lower_bb, zscore_extreme, stoch_oversold])
 
-        if oversold_count >= 1:  # Relaxed from 2
+        if oversold_count >= 2:  # Increased from 1 to 2 for quality
             return True, f"meanrev_oversold_{oversold_count}"
 
         return False, None
