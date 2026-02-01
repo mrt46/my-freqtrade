@@ -1,5 +1,4 @@
 # Freqtrade rules
-config*.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
@@ -12,9 +11,16 @@ user_data/*
 !user_data/notebooks
 !user_data/models
 !user_data/freqaimodels
+!user_data/config
+!user_data/config/**
 user_data/freqaimodels/*
 user_data/models/*
 user_data/notebooks/*
+
+# Config files with secrets (use examples instead)
+config.json
+*_private.json
+*_secret.json
 freqtrade-plot.html
 freqtrade-profit-plot.html
 freqtrade/rpc/api_server/ui/*
