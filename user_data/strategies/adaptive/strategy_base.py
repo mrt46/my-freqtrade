@@ -496,10 +496,11 @@ class MeanReversionSubStrategy(SubStrategyBase):
         zscore_extreme = current['zscore'] < -1.0  # Relaxed from -2
         stoch_oversold = current['stoch_k'] < 30  # Relaxed from 20
 
-        # Entry signal (require 2 conditions for better quality)
+        # Entry signal - 1 condition is enough but with RSI as primary filter
         oversold_count = sum([rsi_oversold, price_below_lower_bb, zscore_extreme, stoch_oversold])
 
-        if oversold_count >= 2:  # Increased from 1 to 2 for quality
+        # RSI must be oversold OR at least 2 other conditions met
+        if rsi_oversold or oversold_count >= 2:
             return True, f"meanrev_oversold_{oversold_count}"
 
         return False, None

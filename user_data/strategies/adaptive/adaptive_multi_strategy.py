@@ -305,24 +305,24 @@ class AdaptiveMultiStrategy(IStrategy):
     # Hyperparameters
     buy_rsi = IntParameter(20, 40, default=30, space="buy")
     sell_rsi = IntParameter(60, 80, default=70, space="sell")
-    atr_multiplier = DecimalParameter(1.0, 2.5, default=1.5, space="stoploss")  # Tighter for better R:R
+    atr_multiplier = DecimalParameter(1.5, 3.0, default=2.0, space="stoploss")  # Balanced ATR multiplier
 
-    # Strategy settings - Optimized for better Risk:Reward ratio
-    # Higher ROI targets with tighter stoploss = Better R:R
+    # Strategy settings - Balanced for Risk:Reward ratio
+    # Achievable ROI targets with moderate stoploss
     minimal_roi = {
-        "0": 0.06,      # 6% ROI target - hold for big wins
-        "30": 0.04,     # 4% after 30 min
-        "60": 0.03,     # 3% after 60 min
-        "120": 0.02,    # 2% after 120 min
-        "240": 0.015    # 1.5% after 240 min - still profitable exit
+        "0": 0.05,      # 5% ROI target
+        "30": 0.035,    # 3.5% after 30 min
+        "60": 0.025,    # 2.5% after 60 min
+        "120": 0.015,   # 1.5% after 120 min
+        "240": 0.01     # 1% after 240 min
     }
 
-    stoploss = -0.02  # 2% stoploss (tighter = better R:R)
+    stoploss = -0.025  # 2.5% stoploss (balanced - not too tight, not too loose)
 
-    # Trailing stop - More aggressive to lock in profits
+    # Trailing stop - Balanced to lock in profits without cutting winners
     trailing_stop = True
-    trailing_stop_positive = 0.008  # Start trailing at 0.8% profit
-    trailing_stop_positive_offset = 0.012  # Activate when 1.2% in profit
+    trailing_stop_positive = 0.01   # Start trailing at 1% profit
+    trailing_stop_positive_offset = 0.02  # Activate when 2% in profit
     trailing_only_offset_is_reached = True
 
     # Order settings
@@ -474,12 +474,12 @@ class AdaptiveMultiStrategy(IStrategy):
             should_enter, enter_tag = current_strategy.generate_entry_signal(dataframe.iloc[:i+1], current_market_condition)
 
             if should_enter:
-                # Volume confirmation - only enter if volume is above threshold
+                # Volume confirmation - relaxed threshold (was 80%, too strict)
                 current_volume_ratio = dataframe['volume_ratio'].iloc[i]
 
-                # Require volume to be at least 80% of average for entries
-                # This filters out low-conviction moves
-                if current_volume_ratio >= 0.8:
+                # Require volume to be at least 50% of average
+                # Lower threshold keeps more good trades while filtering dead markets
+                if current_volume_ratio >= 0.5:
                     # High volume entries get a special tag for tracking
                     vol_suffix = "_highvol" if current_volume_ratio >= 1.5 else ""
                     dataframe.loc[dataframe.index[i], 'enter_long'] = 1
@@ -513,12 +513,9 @@ class AdaptiveMultiStrategy(IStrategy):
                         current_rate: float, current_profit: float,
                         after_fill: bool, **kwargs) -> Optional[float]:
         """
-        Dynamic ATR-based stoploss with profit protection
+        Dynamic ATR-based stoploss with balanced profit protection
 
-        Key improvements for Risk:Reward:
-        1. Tighter base stoploss (1.5x ATR instead of 2x)
-        2. Progressive tightening as profit increases
-        3. Break-even protection after small profit
+        Balance between protecting profits and letting winners run
         """
 
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
@@ -528,32 +525,29 @@ class AdaptiveMultiStrategy(IStrategy):
 
         current_atr_pct = dataframe['atr_pct'].iloc[-1]
 
-        # Base dynamic stoploss: 1.5x ATR (tighter for better R:R)
+        # Base dynamic stoploss: 2x ATR (balanced approach)
         atr_mult = float(self.atr_multiplier.value)
         dynamic_sl = -(current_atr_pct * atr_mult / 100)
 
-        # Cap maximum loss at 3% (safety net)
-        dynamic_sl = max(dynamic_sl, -0.03)
+        # Cap maximum loss at 3.5% (safety net)
+        dynamic_sl = max(dynamic_sl, -0.035)
 
-        # Minimum stoploss at 1.5% (don't let ATR make it too tight)
-        dynamic_sl = min(dynamic_sl, -0.015)
+        # Minimum stoploss at 2% (don't cut winners too early)
+        dynamic_sl = min(dynamic_sl, -0.02)
 
-        # Progressive profit protection - key for R:R improvement
-        if current_profit > 0.04:
-            # 4%+ profit: Lock in at least 2.5% profit
-            dynamic_sl = max(dynamic_sl, 0.025)
+        # Progressive profit protection - let winners run more
+        if current_profit > 0.05:
+            # 5%+ profit: Lock in at least 3% profit
+            dynamic_sl = max(dynamic_sl, 0.03)
+        elif current_profit > 0.04:
+            # 4%+ profit: Lock in at least 2% profit
+            dynamic_sl = max(dynamic_sl, 0.02)
         elif current_profit > 0.03:
-            # 3%+ profit: Lock in at least 1.5% profit
-            dynamic_sl = max(dynamic_sl, 0.015)
+            # 3%+ profit: Lock in at least 1% profit
+            dynamic_sl = max(dynamic_sl, 0.01)
         elif current_profit > 0.02:
-            # 2%+ profit: Lock in at least 0.8% profit
-            dynamic_sl = max(dynamic_sl, 0.008)
-        elif current_profit > 0.015:
-            # 1.5%+ profit: Move to break-even
+            # 2%+ profit: Move to break-even
             dynamic_sl = max(dynamic_sl, 0.0)
-        elif current_profit > 0.01:
-            # 1%+ profit: Tighten to 0.5% loss max
-            dynamic_sl = max(dynamic_sl, -0.005)
 
         return dynamic_sl
 
