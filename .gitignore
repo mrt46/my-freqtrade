@@ -13,6 +13,9 @@ user_data/*
 !user_data/freqaimodels
 # user_data/config - Contains sensitive API keys and secrets
 user_data/config/*.json
+user_data/config/config_binance*.json
+user_data/config/config_full.json
+user_data/config/config_download.json
 !user_data/config/*.example.json
 user_data/freqaimodels/*
 user_data/models/*
