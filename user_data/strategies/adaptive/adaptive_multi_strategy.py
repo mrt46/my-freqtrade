@@ -11,13 +11,24 @@ import numpy as np
 from freqtrade.strategy import IStrategy, IntParameter, DecimalParameter
 from freqtrade.persistence import Trade
 
-from .market_regime import MarketRegimeDetector
-from .strategy_base import (
+# Dynamic import to handle both module and direct loading
+import os
+import sys
+
+# Add strategy path to allow imports
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+if _current_dir not in sys.path:
+    sys.path.insert(0, _current_dir)
+
+from market_regime import MarketRegimeDetector
+from strategy_base import (
     SubStrategyBase,
     TrendFollowingSubStrategy,
     GridSubStrategy,
     MeanReversionSubStrategy
 )
+from thompson_sampling import ThompsonSamplingSelector, ContextualBandit
+from performance_tracker import PerformanceTracker, AdaptiveWeightManager
 
 logger = logging.getLogger(__name__)
 
@@ -25,44 +36,111 @@ logger = logging.getLogger(__name__)
 class StrategySelector:
     """
     Intelligent strategy selector that chooses the best strategy
-    based on market conditions and historical performance
+    based on market conditions and historical performance.
+
+    Uses Thompson Sampling for exploration vs exploitation balance
+    and Adaptive Weights based on recent performance.
     """
 
-    def __init__(self, strategies: List[SubStrategyBase]):
+    def __init__(
+        self,
+        strategies: List[SubStrategyBase],
+        use_thompson_sampling: bool = True,
+        data_dir: str = "user_data/performance"
+    ):
         self.strategies = {s.metadata.name: s for s in strategies}
+        self.strategy_names = list(self.strategies.keys())
         self.performance_history: Dict[str, List[Dict]] = {name: [] for name in self.strategies}
         self.selection_history: List[Dict] = []
         self.last_switch_time: Optional[datetime] = None
         self.min_switch_interval = timedelta(minutes=30)  # Don't switch too frequently
         self.current_strategy: Optional[str] = None
 
+        # Phase 2: Thompson Sampling
+        self.use_thompson_sampling = use_thompson_sampling
+        if use_thompson_sampling:
+            self.thompson_sampler = ThompsonSamplingSelector(
+                self.strategy_names,
+                state_file=os.path.join(data_dir, "thompson_state.json")
+            )
+            # Contextual bandit for market-aware selection
+            self.contextual_bandit = ContextualBandit(
+                self.strategy_names,
+                contexts=["sideways", "trending_up", "trending_down", "volatile"]
+            )
+        else:
+            self.thompson_sampler = None
+            self.contextual_bandit = None
+
+        # Phase 2: Performance Tracking & Adaptive Weights
+        self.performance_tracker = PerformanceTracker(data_dir)
+        self.weight_manager = AdaptiveWeightManager(
+            self.strategy_names,
+            self.performance_tracker
+        )
+
+        logger.info(f"StrategySelector initialized with {len(self.strategies)} strategies, "
+                   f"Thompson Sampling: {use_thompson_sampling}")
+
     def select_best_strategy(self, market_condition: Dict) -> Tuple[str, float, Dict[str, float]]:
         """
         Select the best strategy for current market conditions
 
+        Uses a hybrid approach:
+        1. Calculate fitness scores based on market conditions
+        2. Apply adaptive weights from recent performance
+        3. Use Thompson Sampling for exploration/exploitation balance
+
         Returns:
             (strategy_name, confidence, all_scores)
         """
+        # Adjust weights if needed
+        if self.weight_manager.should_adjust():
+            self.weight_manager.adjust_weights()
+
         scores = {}
 
         for name, strategy in self.strategies.items():
             base_score = strategy.calculate_fitness_score(market_condition)
 
-            # Adjust score based on recent performance
+            # Apply adaptive weight
+            weight = self.weight_manager.get_weight(name)
+            weighted_score = base_score * weight
+
+            # Adjust score based on recent performance (legacy)
             perf_multiplier = self._get_performance_multiplier(name)
-            adjusted_score = base_score * perf_multiplier
+            adjusted_score = weighted_score * perf_multiplier
 
             # Check minimum threshold
             if adjusted_score < strategy.metadata.min_fitness_threshold:
                 adjusted_score = 0.0
 
+            # Check if strategy should be paused
+            should_pause, reason = self.weight_manager.should_pause_strategy(name)
+            if should_pause:
+                adjusted_score = 0.0
+                logger.warning(f"Strategy {name} paused: {reason}")
+
             scores[name] = adjusted_score
+
+        # Use Thompson Sampling for final selection if enabled
+        if self.use_thompson_sampling and self.thompson_sampler:
+            # Get market context for contextual bandit
+            context = self._get_market_context(market_condition)
+
+            # Thompson Sampling adds exploration
+            ts_strategy, ts_sample = self.contextual_bandit.select_strategy(context)
+
+            # Blend fitness scores with Thompson Sampling
+            # 70% fitness score, 30% Thompson Sampling exploration
+            if scores.get(ts_strategy, 0) > 0:
+                scores[ts_strategy] = scores.get(ts_strategy, 0) * 0.7 + ts_sample * 0.3
 
         # Find best strategy
         best_strategy = max(scores, key=scores.get)
         best_score = scores[best_strategy]
 
-        # Check if we should switch
+        # Check if we should switch (avoid frequent switching)
         if self.current_strategy and self.last_switch_time:
             time_since_switch = datetime.now() - self.last_switch_time
             if time_since_switch < self.min_switch_interval:
@@ -88,6 +166,20 @@ class StrategySelector:
         })
 
         return best_strategy, best_score, scores
+
+    def _get_market_context(self, market_condition: Dict) -> str:
+        """Convert market condition to context string for contextual bandit"""
+        trend = market_condition.get("trend", "sideways")
+        volatility = market_condition.get("volatility", "normal")
+
+        if trend in ["strong_uptrend", "uptrend"]:
+            return "trending_up"
+        elif trend in ["strong_downtrend", "downtrend"]:
+            return "trending_down"
+        elif volatility in ["high", "extreme"]:
+            return "volatile"
+        else:
+            return "sideways"
 
     def select_ensemble(self, market_condition: Dict, top_n: int = 2) -> Dict[str, float]:
         """
@@ -131,8 +223,20 @@ class StrategySelector:
         # Multiplier: 0.7 to 1.3 based on win rate
         return 0.7 + (win_rate * 0.6)
 
-    def record_trade_result(self, strategy_name: str, profit: float, market_condition: Dict):
-        """Record trade result for performance tracking"""
+    def record_trade_result(
+        self,
+        strategy_name: str,
+        profit: float,
+        market_condition: Dict,
+        pair: str = "",
+        entry_price: float = 0,
+        exit_price: float = 0,
+        hold_duration: int = 0,
+        entry_reason: str = "",
+        exit_reason: str = ""
+    ):
+        """Record trade result for performance tracking and adaptive learning"""
+        # Legacy history
         if strategy_name in self.performance_history:
             self.performance_history[strategy_name].append({
                 "timestamp": datetime.now(),
@@ -140,8 +244,54 @@ class StrategySelector:
                 "market_condition": market_condition
             })
 
+        # Update Thompson Sampling
+        if self.use_thompson_sampling:
+            context = self._get_market_context(market_condition)
+            self.contextual_bandit.update(context, strategy_name, profit)
+            self.thompson_sampler.update(strategy_name, profit)
+
+        # Record in Performance Tracker
+        self.performance_tracker.record_trade(
+            strategy=strategy_name,
+            pair=pair,
+            side="long",
+            entry_price=entry_price,
+            exit_price=exit_price,
+            profit_ratio=profit,
+            profit_abs=profit * 100,  # Simplified
+            hold_duration_seconds=hold_duration,
+            market_condition=market_condition,
+            entry_reason=entry_reason,
+            exit_reason=exit_reason
+        )
+
+        logger.info(f"Trade recorded for {strategy_name}: {profit*100:.2f}%")
+
     def get_strategy(self, name: str) -> Optional[SubStrategyBase]:
         return self.strategies.get(name)
+
+    def get_performance_report(self) -> str:
+        """Get detailed performance report"""
+        report_lines = [
+            self.performance_tracker.get_performance_comparison(),
+            "",
+            self.weight_manager.get_weight_report()
+        ]
+
+        if self.use_thompson_sampling:
+            report_lines.extend([
+                "",
+                "Thompson Sampling Stats:",
+                "-" * 40
+            ])
+            ts_stats = self.thompson_sampler.get_strategy_stats()
+            for name, stats in ts_stats.items():
+                report_lines.append(
+                    f"{name}: pulls={stats['total_pulls']}, "
+                    f"expected={stats['expected_value']:.3f}"
+                )
+
+        return "\n".join(report_lines)
 
 
 class AdaptiveMultiStrategy(IStrategy):

@@ -1,7 +1,11 @@
 """
 Adaptive Multi-Strategy Trading System
+
+This module provides an adaptive trading system that automatically
+selects the best strategy based on market conditions.
 """
 
+# Core modules (no freqtrade dependency)
 from .market_regime import (
     MarketRegimeDetector,
     TrendDetector,
@@ -21,15 +25,29 @@ from .strategy_base import (
     MeanReversionSubStrategy
 )
 
-from .adaptive_multi_strategy import (
-    AdaptiveMultiStrategy,
-    StrategySelector
+from .risk_manager import (
+    RiskManager,
+    PortfolioRiskConfig,
+    StrategyRiskConfig,
+    CircuitBreaker,
+    RiskLevel
 )
 
+# Freqtrade-dependent modules (lazy import to avoid dependency issues during testing)
+def get_adaptive_strategy():
+    """Lazy import for AdaptiveMultiStrategy (requires freqtrade)"""
+    from .adaptive_multi_strategy import AdaptiveMultiStrategy
+    return AdaptiveMultiStrategy
+
+def get_strategy_selector():
+    """Lazy import for StrategySelector (requires freqtrade)"""
+    from .adaptive_multi_strategy import StrategySelector
+    return StrategySelector
+
 __all__ = [
-    # Main Strategy
-    'AdaptiveMultiStrategy',
-    'StrategySelector',
+    # Lazy loaders for freqtrade-dependent classes
+    'get_adaptive_strategy',
+    'get_strategy_selector',
 
     # Market Regime
     'MarketRegimeDetector',
@@ -47,4 +65,11 @@ __all__ = [
     'TrendFollowingSubStrategy',
     'GridSubStrategy',
     'MeanReversionSubStrategy',
+
+    # Risk Management
+    'RiskManager',
+    'PortfolioRiskConfig',
+    'StrategyRiskConfig',
+    'CircuitBreaker',
+    'RiskLevel',
 ]
