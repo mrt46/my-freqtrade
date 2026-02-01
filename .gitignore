@@ -11,8 +11,9 @@ user_data/*
 !user_data/notebooks
 !user_data/models
 !user_data/freqaimodels
-!user_data/config
-!user_data/config/**
+# user_data/config - Contains sensitive API keys and secrets
+user_data/config/*.json
+!user_data/config/*.example.json
 user_data/freqaimodels/*
 user_data/models/*
 user_data/notebooks/*
