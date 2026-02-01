@@ -1,0 +1,169 @@
+{
+    "trading_mode": "spot",
+    "margin_mode": "",
+    "max_open_trades": 5,
+    "stake_currency": "USDT",
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 0.95,
+    "fiat_display_currency": "EUR",
+    "dry_run": true,
+    "dry_run_wallet": 1000,
+    "cancel_open_orders_on_exit": true,
+    "unfilledtimeout": {
+        "entry": 10,
+        "exit": 10,
+        "exit_timeout_count": 0,
+        "unit": "minutes"
+    },
+    "entry_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "price_last_balance": 0.0,
+        "check_depth_of_market": {
+            "enabled": true,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "exit_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "exchange": {
+        "name": "binance",
+        "key": "YOUR_BINANCE_API_KEY",
+        "secret": "YOUR_BINANCE_SECRET_KEY",
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "rateLimit": 100
+        },
+        "ccxt_sync_config": {},
+        "ccxt_async_config": {},
+        "pair_whitelist": [],
+        "pair_blacklist": [
+            "BNB/.*",
+            ".*(UP|DOWN|BULL|BEAR)/.*",
+            ".*(_PREMIUM|DEFI|BULL|BEAR|HALF|HEDGE)/.*",
+            "(AUD|BRZ|CAD|CHF|EUR|GBP|HKD|IDRT|JPY|NGN|PLN|RUB|SGD|TRY|UAH|USD|ZAR)/.*",
+            "(BUSD|TUSD|USDC|USDP|FDUSD)/.*",
+            "(USDT|PAX|PAXG)/.*"
+        ]
+    },
+    "pairlists": [
+        {
+            "method": "VolumePairList",
+            "number_assets": 40,
+            "sort_key": "quoteVolume",
+            "min_value": 15000000,
+            "refresh_period": 1800
+        },
+        {
+            "method": "AgeFilter",
+            "min_days_listed": 45
+        },
+        {
+            "method": "PriceFilter",
+            "min_price": 0.0001,
+            "max_price": 50000
+        },
+        {
+            "method": "SpreadFilter",
+            "max_spread_ratio": 0.003
+        },
+        {
+            "method": "RangeStabilityFilter",
+            "lookback_days": 5,
+            "min_rate_of_change": 0.03,
+            "max_rate_of_change": 0.50,
+            "refresh_period": 1800
+        },
+        {
+            "method": "VolatilityFilter",
+            "lookback_days": 10,
+            "min_volatility": 0.02,
+            "max_volatility": 0.65,
+            "refresh_period": 43200
+        }
+    ],
+    "protections": [
+        {
+            "method": "CooldownPeriod",
+            "stop_duration_candles": 3
+        },
+        {
+            "method": "StoplossGuard",
+            "lookback_period_candles": 24,
+            "trade_limit": 3,
+            "stop_duration_candles": 12,
+            "only_per_pair": false
+        },
+        {
+            "method": "MaxDrawdown",
+            "lookback_period_candles": 48,
+            "trade_limit": 20,
+            "stop_duration_candles": 12,
+            "max_allowed_drawdown": 0.15
+        },
+        {
+            "method": "LowProfitPairs",
+            "lookback_period_candles": 60,
+            "trade_limit": 3,
+            "stop_duration_candles": 30,
+            "required_profit": -0.02,
+            "only_per_pair": true
+        }
+    ],
+    "telegram": {
+        "enabled": true,
+        "token": "YOUR_TELEGRAM_BOT_TOKEN",
+        "chat_id": "YOUR_TELEGRAM_CHAT_ID",
+        "keyboard": [
+            ["/daily", "/profit", "/balance"],
+            ["/status", "/status table", "/performance"],
+            ["/count", "/start", "/stop", "/help"]
+        ],
+        "allow_custom_messages": true,
+        "notification_settings": {
+            "status": "silent",
+            "warning": "on",
+            "startup": "on",
+            "entry": "on",
+            "entry_fill": "on",
+            "entry_cancel": "silent",
+            "exit": "on",
+            "exit_fill": "on",
+            "exit_cancel": "silent",
+            "protection_trigger": "on",
+            "protection_trigger_global": "on",
+            "strategy_msg": "on",
+            "show_candle": "off"
+        },
+        "reload": true,
+        "balance_dust_level": 0.01
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "0.0.0.0",
+        "listen_port": 8080,
+        "verbosity": "error",
+        "enable_openapi": true,
+        "jwt_secret_key": "CHANGE_THIS_TO_RANDOM_STRING",
+        "ws_token": "CHANGE_THIS_TO_RANDOM_WS_TOKEN",
+        "CORS_origins": ["http://localhost:3000"],
+        "username": "freqtrader",
+        "password": "CHANGE_THIS_PASSWORD"
+    },
+    "bot_name": "AutonomousTrader",
+    "force_entry_enable": true,
+    "initial_state": "running",
+    "internals": {
+        "process_throttle_secs": 5,
+        "heartbeat_interval": 60
+    },
+    "strategy": "AdaptiveMultiStrategy",
+    "strategy_path": "user_data/strategies/adaptive",
+    "recursive_strategy_search": true,
+    "dataformat_ohlcv": "feather",
+    "dataformat_trades": "feather"
+}
