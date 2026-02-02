@@ -1,0 +1,22 @@
+[Unit]
+Description=Freqtrade Binance Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=user
+WorkingDirectory=/home/user/my-freqtrade
+ExecStart=/usr/bin/python3 -m freqtrade trade --config user_data/config/config_full.json --strategy BinanceOptimized --logfile user_data/logs/freqtrade.log
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+LimitNOFILE=4096
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
