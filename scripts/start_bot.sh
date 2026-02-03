@@ -15,6 +15,9 @@ echo -e "${BLUE}========================================${NC}"
 # Change to project directory
 cd "$(dirname "$0")/.." || exit
 
+# Activate virtualenv
+source .venv/bin/activate || { echo "Error: .venv not found. Run: python -m venv .venv && pip install -e ."; exit 1; }
+
 # Check if config file exists
 CONFIG_FILE="user_data/config/config_full.json"
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -43,8 +46,7 @@ start_dry_run() {
     echo -e "${YELLOW}No real money will be used.${NC}"
     python -m freqtrade trade \
         --config "$CONFIG_FILE" \
-        --strategy AdaptiveMultiStrategy \
-        --dry-run
+        --strategy BinanceOptimized
 }
 
 # Function to start live trading
@@ -57,7 +59,7 @@ start_live() {
         echo -e "${GREEN}Starting LIVE trading...${NC}"
         python -m freqtrade trade \
             --config "$CONFIG_FILE" \
-            --strategy AdaptiveMultiStrategy
+            --strategy BinanceOptimized
     else
         echo -e "${YELLOW}Live trading cancelled.${NC}"
     fi
@@ -66,13 +68,8 @@ start_live() {
 # Function to run backtesting
 run_backtest() {
     echo -e "${BLUE}Starting backtesting...${NC}"
-    read -p "Enter timerange (e.g., 20240101-20240201): " timerange
-
-    python -m freqtrade backtesting \
-        --config "$CONFIG_FILE" \
-        --strategy AdaptiveMultiStrategy \
-        --timerange "$timerange" \
-        --enable-protections
+    echo -e "${YELLOW}Using offline runner (no exchange needed)${NC}"
+    python run_backtest.py
 }
 
 # Function to download data
