@@ -1,0 +1,217 @@
+==============================================================
+  FREQTRADE – KRITIK GOREVLER ICIN HAZIR PROMPT'LAR
+  (Kopyala → Yapist → Calistir)
+==============================================================
+
+--------------------------------------------------------------
+1. HYPEROPT – Parametre Optimizasyonu
+--------------------------------------------------------------
+Prompt:
+  Run freqtrade hyperopt on BinanceOptimized strategy with
+  real downloaded data. Optimize buy-space parameters
+  (st_multiplier, st_period, ma_count, ma_gap, volume_factor)
+  using ROI metric. Use --timerange 20250101-20260101 --epochs 100.
+  Show the top 5 results.
+
+Komut (network eriscimli ortamda):
+  source .venv/bin/activate
+  python -m freqtrade hyperopt \
+    --config user_data/config/config_full.json \
+    --strategy BinanceOptimized \
+    --timerange 20250101-20260101 \
+    --epochs 100 \
+    --spaces buy \
+    --hyperopt-loss SharpeHyperLoss
+
+Sonucu uygulamak icin:
+  python -m freqtrade hyperopt-show -n <NUM>   # en iyisini goster
+  # Sonra strategy dosyasinda buy_params = {...} ekle
+
+--------------------------------------------------------------
+2. GERCEL BINANCE DATA INDIRME
+--------------------------------------------------------------
+Prompt:
+  Download 1 year of 4h OHLCV data from Binance for the 10
+  pairs in config_full.json. Store as feather format.
+
+Komut:
+  source .venv/bin/activate
+  python -m freqtrade download-data \
+    --config user_data/config/config_full.json \
+    --timeframes 4h \
+    --days 365
+
+--------------------------------------------------------------
+3. WALK-FORWARD VALIDATION (Zamansal Kesim Backtesting)
+--------------------------------------------------------------
+Prompt:
+  Run walk-forward backtest on BinanceOptimized: split 1 year
+  into 4 quarters. Backtest Q1 as training, Q2 as OOS test.
+  Then Q1+Q2 training, Q3 test. Then Q1+Q2+Q3 training, Q4 test.
+  Compare results across all OOS windows.
+
+Komut (el ile):
+  source .venv/bin/activate
+
+  # Window 1: train Jan-Mar, test Apr-Jun
+  python -m freqtrade backtesting \
+    --config user_data/config/config_full.json \
+    --strategy BinanceOptimized --timerange 20250101-20250630
+
+  # Window 2: train Jan-Jun, test Jul-Sep
+  python -m freqtrade backtesting \
+    --config user_data/config/config_full.json \
+    --strategy BinanceOptimized --timerange 20250101-20250930
+
+  # Window 3: train Jan-Sep, test Oct-Dec
+  python -m freqtrade backtesting \
+    --config user_data/config/config_full.json \
+    --strategy BinanceOptimized --timerange 20250101-20251231
+
+--------------------------------------------------------------
+4. LIVE / DRY-RUN BASLAMA
+--------------------------------------------------------------
+Prompt:
+  Start BinanceOptimized in dry-run mode with API server
+  enabled so we can monitor via FreqUI.
+
+Komut:
+  source .venv/bin/activate
+  # Once config hazirla:
+  cp config_examples/config_dryrun.example.json user_data/config/config_full.json
+  # API key/secret boş bırakılabilir (dry_run'da gerekmez)
+
+  # Botu basla:
+  python -m freqtrade trade \
+    --config user_data/config/config_full.json \
+    --strategy BinanceOptimized \
+    --logfile user_data/logs/freqtrade.log
+
+  # FreqUI kurmak icin (opsiyonel):
+  python -m freqtrade install-ui
+
+  # Sonra browser'da: http://127.0.0.1:8080
+  # Username: freqtrader  Password: SuperSecurePassword
+
+--------------------------------------------------------------
+5. SYSTEMD SERVIS (Otomatik Baslatma)
+--------------------------------------------------------------
+Prompt:
+  Install freqtrade as a systemd service so it starts on boot
+  and auto-restarts on crash.
+
+Komutlar:
+  sudo cp scripts/freqtrade-bot.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable freqtrade-bot
+  sudo systemctl start freqtrade-bot
+
+  # Status kontrol:
+  sudo systemctl status freqtrade-bot
+  sudo journalctl -u freqtrade-bot -f   # live log
+
+--------------------------------------------------------------
+6. TELEGRAM BILDIRIM AKTIVASYON
+--------------------------------------------------------------
+Prompt:
+  Enable Telegram notifications for the freqtrade bot.
+  Configure entry/exit/stoploss alerts.
+
+Yapilacaklar:
+  1. Telegram'da @BotFather ile yeni bot olustur
+  2. Token al (örnek: 123456:ABCdefGhIjKl)
+  3. Bir grup olustur ve bot'u ekle
+  4. Chat ID al: https://api.telegram.org/bot<TOKEN>/getUpdates
+  5. config_full.json'da:
+     "telegram": {
+         "enabled": true,
+         "token": "123456:ABCdefGhIjKl",
+         "chat_id": "-1001234567890"
+     }
+
+--------------------------------------------------------------
+7. KORUMA KURALLARI (Protections)
+--------------------------------------------------------------
+Prompt:
+  Add drawdown protection: if bot loses more than 15% in 24h,
+  pause trading for 2 hours. Add cooldown period of 4h after
+  a stoploss hit.
+
+Config'a ekle (config_full.json):
+  "protections": [
+      {
+          "method": "CooldownPeriod",
+          "trade_back_seconds": 14400,
+          "trade_back_period": 5,
+          "trade_back_period_type": "candle"
+      },
+      {
+          "method": "MaxDrawdown",
+          "lookback_seconds": 86400,
+          "trade_back_seconds": 7200,
+          "max_account_loss": 0.15,
+          "required_consecutive_failures": 3
+      }
+  ]
+
+  # Backtesting'de protections aktif etmek:
+  python -m freqtrade backtesting ... --enable-protections
+
+--------------------------------------------------------------
+8. IKINCI STRATEJININ EKLENMESI (Mean Reversion)
+--------------------------------------------------------------
+Prompt:
+  Write a mean-reversion strategy for freqtrade that:
+  - Uses Bollinger Bands (20, 2.0) for entry/exit
+  - Enters long when RSI < 30 AND close < bb_lower
+  - Exits when close > bb_middle
+  - Uses ATR-based stoploss at 1.5x ATR
+  - Timeframe: 1h
+  - Compatible with BinanceOptimized for portfolio diversification
+
+  Save as user_data/strategies/MeanReversion.py
+
+--------------------------------------------------------------
+9. BACKTEST SONUÇLARININ ANALIZI
+--------------------------------------------------------------
+Prompt:
+  Analyze the latest backtest results. Load the JSON result file
+  from user_data/backtest_results/ and compute:
+  - Sharpe ratio
+  - Max drawdown duration
+  - Win/loss ratio by pair
+  - Average profit per entry tag
+  - Correlation between pairs
+
+Komut:
+  source .venv/bin/activate
+  python -m freqtrade backtesting-show   # son sonucu goster
+  python -m freqtrade backtesting-analysis \
+    --config user_data/config/config_full.json \
+    --backtest-result-file user_data/backtest_results/backtest-result-*.json
+
+--------------------------------------------------------------
+10. SLIPPAGE + FEE MODELING
+--------------------------------------------------------------
+Prompt:
+  Modify BinanceOptimized to account for realistic slippage:
+  - Entry slippage: 0.05% (market impact)
+  - Exit slippage: 0.1% (wider on limit orders)
+  - Fee: 0.1% maker, 0.1% taker (BNB discount)
+  Add these as config parameters so they can be tuned.
+
+Config'a ekle:
+  "trading_mode": "spot",
+  "stake_currency": "USDT",
+  "exchange": {
+      "ccxt_config": {
+          "options": {
+              "defaultType": "spot"
+          }
+      }
+  }
+
+  # Backtest'te fee override:
+  python -m freqtrade backtesting ... --fee 0.001
+
+==============================================================
