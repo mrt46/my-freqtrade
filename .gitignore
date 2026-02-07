@@ -1,30 +1,19 @@
 # Freqtrade rules
+config*.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
 logfile.txt
 user_data/*
-!user_data/strategies
-!user_data/strategies/**
-!user_data/hyperopts
-!user_data/hyperopts/**
+!user_data/strategy/sample_strategy.py
+!user_data/strategies/
+!user_data/strategies/VisualPriceAction.py
 !user_data/notebooks
 !user_data/models
 !user_data/freqaimodels
-# user_data/config - Contains sensitive API keys and secrets
-user_data/config/*.json
-user_data/config/config_binance*.json
-user_data/config/config_full.json
-user_data/config/config_download.json
-!user_data/config/*.example.json
 user_data/freqaimodels/*
 user_data/models/*
 user_data/notebooks/*
-
-# Config files with secrets (use examples instead)
-config.json
-*_private.json
-*_secret.json
 freqtrade-plot.html
 freqtrade-profit-plot.html
 freqtrade/rpc/api_server/ui/*
