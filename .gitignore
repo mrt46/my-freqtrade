@@ -118,3 +118,4 @@ target/
 !config_examples/config_freqai.example.json
 
 docker-compose-*.yml
+!config_examples/config_binance_visualpriceaction.example.json
